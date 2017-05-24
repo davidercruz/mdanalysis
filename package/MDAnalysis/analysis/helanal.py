@@ -215,10 +215,10 @@ def helanal_trajectory(universe, selection="name CA",
           If the specified finish time precedes the specified start time or
           current time stamp of trajectory object.
 
-    .. Note::
-
-       Only a single helix is analyzed. Use the selection to specify the
-       helix, e.g. with "name CA and resid 1:20" or use start=1, stop=20.
+    Note
+    ----
+    Only a single helix is analyzed. Use the selection to specify the helix,
+    e.g. with "name CA and resid 1:20" or use start=1, stop=20.
 
 
     .. versionchanged:: 0.13.0
