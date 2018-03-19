@@ -92,19 +92,10 @@ A full list of valid values for these keywords are given in the below table.
 |                  +-----------+----------+--------------+-----+
 |                  | PQR       | Yes      | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
-| Desmond          | DMS       | No       | Yes          | r   |
-+------------------+-----------+----------+--------------+-----+
-| DL Poly          | CONFIG    | Yes      | Yes          | r   |
-|                  +-----------+----------+--------------+-----+
-|                  | HISTORY   | Yes      | Yes          | r   |
-+------------------+-----------+----------+--------------+-----+
 | GAMESS           | GMS,      |          | Yes          | r   |
 |                  | LOG,      |          |              |     |
 |                  | OUT       |          |              |     |
 +------------------+-----------+----------+--------------+-----+
-| Tripos           | MOL2      | Yes      | Yes          | r/w |
-+------------------+-----------+----------+--------------+-----+
-
 
 .. _Supported formats:
 
@@ -119,6 +110,9 @@ A full list of valid values for these keywords are given in the below table.
    ":ref:`Charmm <load_charmm>`", ":ref:`PSF files <load_psf>`", "PSF", "Yes", "No", "r"
    "", ":ref:`Binary DCD files <load_dcd>`", "DCD", "Minimal", "Yes", "r/w"
    "", ":ref:`Ascii trajectory <load_crd>`", "CRD", "Minimal", "Yes", "r"
+   ":ref:`Desmond MD <load_desmond>`", ":ref:`DMS trajectory <load_dms>`", "DMS", "Yes", "Yes", "r"
+   ":ref:`DL Poly <load_dlpoly>`", ":ref:`Ascii History <load_history>`", "HISTORY", "Yes", "Yes", "r"
+   "", ":ref:`Ascii config <load_config>`", "CONFIG", "Yes", "Yes", "r"
    ":ref:`Gromacs <loading_gromacs>`", ":ref:`Gromos <load_gro>`", "GRO", "Yes", "Yes", "r/w"
    "", ":ref:`TPR file <load_tpr>`", "TPR", "Yes", "No", "r"
    "", ":ref:`TRR trajectory <load_trr>`", "TRR", "Minimal", "Yes", "r/w"
@@ -131,6 +125,7 @@ A full list of valid values for these keywords are given in the below table.
    ":ref:`Protein Databank <load_databank>`", ":ref:`PDB <load_pdb>`", "PDB, ENT, XPDB", "Yes", Yes", "r/w"
    "", ":ref:`Macromolecular transmission format <load_mmtf>`", "MMTF", "Yes", "Yes", "r"
    ":ref:`Tinker <load_tinker>`", ":ref:`Extended XYZ <load_txyz>`", "TXYZ", "Yes", "Yes", "r"
+   ":ref:`Tripos <load_tripos>`", ":ref:`MOL2 <load_mol2>`", "MOL2", "Yes", "Yes", "r/w"
 
 .. toctree::
    :maxdepth: 2
@@ -139,11 +134,14 @@ A full list of valid values for these keywords are given in the below table.
    ./loading_files/amber
    ./loading_files/autodock
    ./loading_files/charmm
+   ./loading_files/desmond
+   ./loading_files/dlpoly
    ./loading_files/gromacs
    ./loading_files/hoomd
    ./loading_files/ibisco
    ./loading_files/lammps
    ./loading_files/protein
    ./loading_files/tinker
+   ./loading_files/tripos
 
 
