@@ -92,12 +92,6 @@ A full list of valid values for these keywords are given in the below table.
 |                  +-----------+----------+--------------+-----+
 |                  | PQR       | Yes      | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
-| CHARMM           | PSF       | Yes      | No           | r   |
-|                  +-----------+----------+--------------+-----+
-|                  | DCD       | Minimal  | Yes          | r/w |
-|                  +-----------+----------+--------------+-----+
-|                  | CRD       | No       | Yes          | r   |
-+------------------+-----------+----------+--------------+-----+
 | Desmond          | DMS       | No       | Yes          | r   |
 +------------------+-----------+----------+--------------+-----+
 | DL Poly          | CONFIG    | Yes      | Yes          | r   |
@@ -122,6 +116,9 @@ A full list of valid values for these keywords are given in the below table.
    "", ":ref:`Ascii restart <load_amber_restart>`", "INPCRD, RESTRT", "No", "Yes", "r"
    "", ":ref:`NetCFD trajectory <load_amber_ncdf>`", "NCDF, NC", "Minimal", "Yes", "r/w"
    ":ref:`Autodock <load_pdbqt>`", ":ref:`Autodock PDBQT files <load_pdbqt>`", "PDBQT", "Yes", "Yes", "r"
+   ":ref:`Charmm <load_charmm>`", ":ref:`PSF files <load_psf>`", "PSF", "Yes", "No", "r"
+   "", ":ref:`Binary DCD files <load_dcd>`", "DCD", "Minimal", "Yes", "r/w"
+   "", ":ref:`Ascii trajectory <load_crd>`", "CRD", "Minimal", "Yes", "r"
    ":ref:`Gromacs <loading_gromacs>`", ":ref:`Gromos <load_gro>`", "GRO", "Yes", "Yes", "r/w"
    "", ":ref:`TPR file <load_tpr>`", "TPR", "Yes", "No", "r"
    "", ":ref:`TRR trajectory <load_trr>`", "TRR", "Minimal", "Yes", "r/w"
@@ -141,6 +138,7 @@ A full list of valid values for these keywords are given in the below table.
 
    ./loading_files/amber
    ./loading_files/autodock
+   ./loading_files/charmm
    ./loading_files/gromacs
    ./loading_files/hoomd
    ./loading_files/ibisco
