@@ -114,10 +114,6 @@ A full list of valid values for these keywords are given in the below table.
 |                  | LOG,      |          |              |     |
 |                  | OUT       |          |              |     |
 +------------------+-----------+----------+--------------+-----+
-| LAMMPS           | DATA      | Yes      | Yes          | r/w |
-|                  +-----------+----------+--------------+-----+
-|                  | DCD       | Minimal  | Yes          | r/w |
-+------------------+-----------+----------+--------------+-----+
 | Tripos           | MOL2      | Yes      | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
 
@@ -139,6 +135,8 @@ A full list of valid values for these keywords are given in the below table.
    ":ref:`Hoomd <load_hoomd>`", ":ref:`XML Topology <load_xml>`", "XML", "Yes", "Yes", "r"
    "", ":ref:`Global simulation data? <load_gsd>`", ":ref:`GSD <load_gsd>`", "No", Yes", "r"
    ":ref:`IBIsCO and YASP trajectories <load_ibisco>`", ":ref:`TRZ <load_ibisco>`", "Minimal", "Yes", "r/w"
+   ":ref:`Lammps <load_lammps>`", ":ref:`DATA <load_data>`", "Yes", "Yes", "r"
+   "", ":ref:`DCD <load_lammps_dcd>`", "Minimal", "Yes", "r/w"
    ":ref:`Tinker <load_tinker>`", ":ref:`TXYZ <load_txyz>`", "Yes", "Yes", "r"
 
 .. toctree::
@@ -150,6 +148,7 @@ A full list of valid values for these keywords are given in the below table.
    ./loading_files/gromacs
    ./loading_files/hoomd
    ./loading_files/ibisco
+   ./loading_files/lammps
    ./loading_files/tinker
 
 
