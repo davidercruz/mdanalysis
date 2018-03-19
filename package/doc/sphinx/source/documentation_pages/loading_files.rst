@@ -118,8 +118,6 @@ A full list of valid values for these keywords are given in the below table.
 |                  +-----------+----------+--------------+-----+
 |                  | DCD       | Minimal  | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
-| Tinker           | TXYZ      | Yes      | Yes          | r   |
-+------------------+-----------+----------+--------------+-----+
 | Tripos           | MOL2      | Yes      | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
 
@@ -139,8 +137,9 @@ A full list of valid values for these keywords are given in the below table.
    "", ":ref:`TRR trajectory <load_trr>`", "TRR", "Minimal", "Yes", "r/w"
    "", ":ref:`XTC trajectory <load_trr>`", "XTC", "Minimal", "Yes", "r/w"
    ":ref:`Hoomd <load_hoomd>`", ":ref:`XML Topology <load_xml>`", "XML", "Yes", "Yes", "r"
-   "", ":ref:`Global simulation data? <load_gsd>`", "GSD", "No", Yes", "r"
+   "", ":ref:`Global simulation data? <load_gsd>`", ":ref:`GSD <load_gsd>`", "No", Yes", "r"
    ":ref:`IBIsCO and YASP trajectories <load_ibisco>`", ":ref:`TRZ <load_ibisco>`", "Minimal", "Yes", "r/w"
+   ":ref:`Tinker <load_tinker>`", ":ref:`TXYZ <load_txyz>`", "Yes", "Yes", "r"
 
 .. toctree::
    :maxdepth: 2
@@ -148,9 +147,9 @@ A full list of valid values for these keywords are given in the below table.
 
    ./loading_files/amber
    ./loading_files/autodock
+   ./loading_files/gromacs
    ./loading_files/hoomd
    ./loading_files/ibisco
-   ./loading_files/gromacs
-   
+   ./loading_files/tinker
 
 
