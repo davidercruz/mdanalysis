@@ -133,11 +133,11 @@ A full list of valid values for these keywords are given in the below table.
    "", ":ref:`TRR trajectory <load_trr>`", "TRR", "Minimal", "Yes", "r/w"
    "", ":ref:`XTC trajectory <load_trr>`", "XTC", "Minimal", "Yes", "r/w"
    ":ref:`Hoomd <load_hoomd>`", ":ref:`XML Topology <load_xml>`", "XML", "Yes", "Yes", "r"
-   "", ":ref:`Global simulation data? <load_gsd>`", ":ref:`GSD <load_gsd>`", "No", Yes", "r"
-   ":ref:`IBIsCO and YASP trajectories <load_ibisco>`", ":ref:`TRZ <load_ibisco>`", "Minimal", "Yes", "r/w"
-   ":ref:`Lammps <load_lammps>`", ":ref:`DATA <load_data>`", "Yes", "Yes", "r"
-   "", ":ref:`DCD <load_lammps_dcd>`", "Minimal", "Yes", "r/w"
-   ":ref:`Tinker <load_tinker>`", ":ref:`TXYZ <load_txyz>`", "Yes", "Yes", "r"
+   "", ":ref:`Global simulation data? <load_gsd>`", "GSD", "No", Yes", "r"
+   ":ref:`IBIsCO and YASP trajectories <load_ibisco>`", ":ref:`Binary trajectory <load_ibisco>`", "TRZ", "Minimal", "Yes", "r/w"
+   ":ref:`Lammps <load_lammps>`", ":ref:`Data file <load_data>`", "DATA", "Yes", "Yes", "r"
+   "", ":ref:`Binary DCD <load_lammps_dcd>`", "DCD", "Minimal", "Yes", "r/w"
+   ":ref:`Tinker <load_tinker>`", ":ref:`Extended XYZ <load_txyz>`", "TXYZ", "Yes", "Yes", "r"
 
 .. toctree::
    :maxdepth: 2
