@@ -92,12 +92,6 @@ A full list of valid values for these keywords are given in the below table.
 |                  +-----------+----------+--------------+-----+
 |                  | PQR       | Yes      | Yes          | r/w |
 +------------------+-----------+----------+--------------+-----+
-| Protein          | MMTF      | Yes      | Yes          | r   |
-| Databank         +-----------+----------+--------------+-----+
-|                  | PDB,      | Yes      | Yes          | r/w |
-|                  | ENT,      |          |              |     |
-|                  | XPDB      |          |              |     |
-+------------------+-----------+----------+--------------+-----+
 | CHARMM           | PSF       | Yes      | No           | r   |
 |                  +-----------+----------+--------------+-----+
 |                  | DCD       | Minimal  | Yes          | r/w |
@@ -137,6 +131,8 @@ A full list of valid values for these keywords are given in the below table.
    ":ref:`IBIsCO and YASP trajectories <load_ibisco>`", ":ref:`Binary trajectory <load_ibisco>`", "TRZ", "Minimal", "Yes", "r/w"
    ":ref:`Lammps <load_lammps>`", ":ref:`Data file <load_data>`", "DATA", "Yes", "Yes", "r"
    "", ":ref:`Binary DCD <load_lammps_dcd>`", "DCD", "Minimal", "Yes", "r/w"
+   ":ref:`Protein Databank <load_databank>`", ":ref:`PDB <load_pdb>`", "PDB, ENT, XPDB", "Yes", Yes", "r/w"
+   "", ":ref:`Macromolecular transmission format <load_mmtf>`", "MMTF", "Yes", "Yes", "r"
    ":ref:`Tinker <load_tinker>`", ":ref:`Extended XYZ <load_txyz>`", "TXYZ", "Yes", "Yes", "r"
 
 .. toctree::
@@ -149,6 +145,7 @@ A full list of valid values for these keywords are given in the below table.
    ./loading_files/hoomd
    ./loading_files/ibisco
    ./loading_files/lammps
+   ./loading_files/protein
    ./loading_files/tinker
 
 
