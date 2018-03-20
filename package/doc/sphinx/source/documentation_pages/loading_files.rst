@@ -89,7 +89,7 @@ A full list of valid values for these keywords are given in the below table.
 .. csv-table:: Table of supported formats
    :header: "Source", "Name", "Format", "Topology", "Trajectory", "I/O"
 
-   ":ref:`Amber <loading_amber>`", ":ref:`Topology <load_amber_top>`", "TOP, PRMTOP, PARM7", "Yes", "Yes", "r"
+   ":ref:`Amber <loading_amber>`", ":ref:`PARM parameter/topology <load_amber_top>`", "TOP, PRMTOP, PARM7", "Yes", "Yes", "r"
    "", ":ref:`Ascii trajectory <load_amber_trj>`", "TRJ, MDCRD", "No", "Yes", "r"
    "", ":ref:`Ascii restart <load_amber_restart>`", "INPCRD, RESTRT", "No", "Yes", "r"
    "", ":ref:`NetCFD trajectory <load_amber_ncdf>`", "NCDF, NC", "Minimal", "Yes", "r/w"
