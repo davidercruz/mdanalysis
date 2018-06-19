@@ -47,9 +47,7 @@ def translate(vector):
     ----------
     vector: list
         coordinates of the vector to which the coordinates will be translated
-    ts: Timestep
-        frame that will be transformed
-     
+        
     Returns
     -------
     :class:`~MDAnalysis.coordinates.base.Timestep` object
@@ -60,8 +58,56 @@ def translate(vector):
             v = np.float32(vector)
             ts.positions += v
         else:
-            raise ValueError("{} vector in too short".format(vector))
+            raise ValueError("{} vector is too short".format(vector))
         
         return ts
     
     return wrapped
+
+def center_in_box(ag, center='geometry', box=None):
+    """
+    Translates the coordinates of a given :class:`~MDAnalysis.coordinates.base.Timestep` instance
+    so that the center of geometry/mass of the given :class:`~MDAnalysis.core.groups.AtomGroup`
+    is centered on the unit cell.
+    
+    Example
+    -------
+    
+    .. code-block:: python
+    
+        ag = u.residues[1].atoms
+        ts = MDAnalysis.transformations.center(ag,center='mass')(ts)
+    
+    Parameters
+    ----------
+    ag: AtomGroup
+        atom group to be centered on the unit cell.
+    center: str, optional
+        used to choose the method of centering on the given atom group. Can be 'geometry'
+        or 'mass'
+        
+    Returns
+    -------
+    :class:`~MDAnalysis.coordinates.base.Timestep` object
+    """
+    
+    if isinstance(ag, AtomGroup):
+        if center == "geometry":
+            ag_center = ag.center_of_geometry(pbc=pbc_arg)
+        elif center == "mass":
+            ag_center = ag.center_of_mass(pbc=pbc_arg)
+        else:
+            raise ValueError('{} is not a valid argument for center'.format(center))
+    else:
+        raise ValueError('{} is not an AtomGroup object'.format(ag))
+    
+    def wrapped(ts):
+        boxcenter = np.sum(ts.triclinic_dimensions, axis=0) / 2
+        vector = boxcenter - ag_center
+        translate(vector)(ts)
+        
+        return ts
+    
+    return wrapped
+        
+            
