@@ -94,4 +94,4 @@ from __future__ import absolute_import
 
 from .translate import translate, center_in_box
 from .rotate import rotateby
-from .fit import alignto, fit_translation
+from .fit import alignto, fit_translation, fit_rot_trans
