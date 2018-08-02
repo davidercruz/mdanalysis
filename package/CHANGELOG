@@ -19,14 +19,13 @@ The rules for this file:
   * 0.18.1
 
 Enhancements
-
   * Added augment functionality to create relevant images of particles 
     in the vicinity of central cell to handle periodic boundary
     conditions (PR #1977) 
   * Added lib.distances.capped_distance function to quickly calculate all distances
     up to a given maximum distance (PR #1941)
   * Added a rotation coordinate transformation (PR #1937)
-  * Added a box centering trajectory transformation (PR #1946)
+  * Added box, plane and axis centering trajectory transformations (PR #1946 and #1973)
   * Added a on-the-fly trajectory transformations API and a coordinate translation
   	function (Issue #786)
   * Added various duecredit stubs
