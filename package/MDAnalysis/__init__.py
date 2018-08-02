@@ -197,7 +197,7 @@ from . import units
 from .core.universe import Universe, as_Universe, Merge
 from .core.groups import AtomGroup, ResidueGroup, SegmentGroup
 from .coordinates.core import writer as Writer
-
+from . import transformations
 # After Universe import
 from .coordinates.MMTF import fetch_mmtf
 
