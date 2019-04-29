@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -28,11 +29,11 @@ import MDAnalysis as mda
 import MDAnalysis.analysis.psa as PSA
 
 from numpy.testing import (assert_array_less,
-                           assert_array_almost_equal,
                            assert_almost_equal, assert_equal)
 import numpy as np
 import scipy
 import scipy.spatial
+import matplotlib
 
 from MDAnalysisTests.datafiles import PSF, DCD, DCD2
 
@@ -73,10 +74,29 @@ class TestPSAnalysis(object):
         return frech_matrix[self.iu1]
 
     @pytest.fixture()
-    def plot_data(self, psa):
+    def plot_data(self, psa, tmpdir):
         psa.run(metric='hausdorff')
         psa.run(metric='discrete_frechet')
-        return psa.plot()
+        with tmpdir.as_cwd():
+            results = psa.plot(filename="distmat.png")
+        return results
+
+    @pytest.fixture()
+    def plot_annotated_heatmap(self, psa, tmpdir):
+        pytest.importorskip('seaborn')
+        psa.run(metric='hausdorff')
+        with tmpdir.as_cwd():
+            results = psa.plot_annotated_heatmap(filename="annotated.png")
+        return results
+
+    @pytest.fixture()
+    def plot_nearest_neighbors(self, psa, tmpdir):
+        pytest.importorskip('seaborn')
+        psa.run(metric='hausdorff')
+        psa.run_pairs_analysis(neighbors=True)
+        with tmpdir.as_cwd():
+            results = psa.plot_nearest_neighbors(filename="nn.png")
+        return results
 
     @pytest.fixture()
     def hausd_pairs_dists(self, psa):
@@ -106,19 +126,75 @@ class TestPSAnalysis(object):
     def test_reversal_hausdorff(self, hausd_matrix):
         """Test whether Hausdorff distances are invariant to path reversal"""
         err_msg = "Hausdorff distances changed after path reversal"
-        assert_array_almost_equal(hausd_matrix[1,2],
-                                  hausd_matrix[0,1],
-                                  decimal=3, err_msg=err_msg)
+        assert_almost_equal(hausd_matrix[1,2],
+                            hausd_matrix[0,1],
+                            decimal=3, err_msg=err_msg)
 
     def test_reversal_frechet(self, frech_matrix):
         """Test whether Frechet distances are same/larger after path reversal"""
         err_msg = "Frechet distances did not increase after path reversal"
         assert frech_matrix[1,2] >= frech_matrix[0,1], err_msg
 
+    def test_get_num_paths(self, psa):
+        assert psa.get_num_paths() == 3
+
+    def test_get_paths(self, psa):
+        paths = psa.get_paths()
+        assert len(paths) == 3
+        assert isinstance(paths, list)
+
+    def test_psa_pairs_ValueError(self, psa):
+        with pytest.raises(ValueError):
+            psa.psa_pairs
+
+    def test_psa_pairs(self, psa):
+        psa.run_pairs_analysis()
+        assert len(psa.psa_pairs) == 3
+
+    def test_hausdorff_pairs_ValueError(self, psa):
+        with pytest.raises(ValueError):
+            psa.hausdorff_pairs
+
+    def test_hausdorff_pairs(self, psa):
+        psa.run_pairs_analysis(hausdorff_pairs=True)
+        assert len(psa.hausdorff_pairs) == 3
+
+    def test_nearest_neighbors_ValueError(self, psa):
+        with pytest.raises(ValueError):
+            psa.nearest_neighbors
+
+    def test_nearest_neighbors(self, psa):
+        psa.run_pairs_analysis(neighbors=True)
+        assert len(psa.nearest_neighbors) == 3
+
+    @pytest.mark.xfail
+    def test_load(self, psa):
+        """Test that the automatically saved files can be loaded"""
+        expected_path_names = psa.path_names[:]
+        expected_paths = [p.copy() for p in psa.paths]
+        psa.save_paths()
+        psa.load()
+        assert psa.path_names == expected_path_names
+        # manually compare paths because
+        #         assert_almost_equal(psa.paths, expected_paths, decimal=6)
+        # raises a ValueError in the assertion code itself
+        assert len(psa.paths) == len(expected_paths)
+        for ipath, (observed, expected) in enumerate(zip(psa.paths, expected_paths)):
+            assert_almost_equal(observed, expected, decimal=6,
+                                err_msg="loaded path {} does not agree with input".format(ipath))
+
     def test_dendrogram_produced(self, plot_data):
         """Test whether Dendrogram dictionary object was produced"""
         err_msg = "Dendrogram dictionary object was not produced"
         assert isinstance(plot_data[1], dict), err_msg
+
+    def test_dendrogram_produced_annotated(self, plot_annotated_heatmap):
+        """Test whether Dendrogram dictionary object was produced"""
+        err_msg = "Dendrogram dictionary object was not produced"
+        assert isinstance(plot_annotated_heatmap[1], dict), err_msg
+
+    def test_plot_nearest_neighbors(self, plot_nearest_neighbors):
+        assert isinstance(plot_nearest_neighbors, matplotlib.axes.Axes)
 
     def test_dist_mat_to_vec_i_less_j(self):
         """Test the index of corresponding distance vector is correct if i < j"""
@@ -149,8 +225,8 @@ class TestPSAnalysis(object):
         identical to those from standard Hausdorff metric"""
         err_msg = ("Some Hausdorff distances from pairs analysis vary "
                    "significantly from usual Hausdorff calculation")
-        assert_array_almost_equal(hausd_dists, hausd_pairs_dists,
-                                  decimal=6, err_msg=err_msg)
+        assert_almost_equal(hausd_dists, hausd_pairs_dists,
+                            decimal=6, err_msg=err_msg)
 
     def test_distances_from_hausdorff_pairs_frames(self, psa):
         """Test whether actual distances between frames of Hausdorff
@@ -161,7 +237,7 @@ class TestPSAnalysis(object):
         hausd_pairs_dists2 = np.array([hausd_pairs[i]['distance']
                                        for i in range(npairs)])
 
-        
+
         err_msg = ("A Hausdorff pair analysis distance when accessed "
                    "by frame varies from expected Hausdorff distance")
         dists = np.zeros((psa.npaths, psa.npaths))
@@ -172,9 +248,9 @@ class TestPSAnalysis(object):
                 dists[i,j] = (PSA.sqnorm(psa.paths[i][p,:,:] -
                                          psa.paths[j][q,:,:]) /
                                          psa.natoms)**0.5
-        assert_array_almost_equal(hausd_pairs_dists2,
-                                  dists[self.iu1],
-                                  decimal=6, err_msg=err_msg)
+        assert_almost_equal(hausd_pairs_dists2,
+                            dists[self.iu1],
+                            decimal=6, err_msg=err_msg)
 
 class TestPSAExceptions(object):
     '''Tests for exceptions that should be raised

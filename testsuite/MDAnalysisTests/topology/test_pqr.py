@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -90,7 +91,7 @@ def test_gromacs_flavour():
     assert u.atoms[0].type == 'O'
     assert u.atoms[0].segid == 'SYSTEM'
     assert not u._topology.types.is_guessed
-    assert u.atoms[0].radius == pytest.approx(1.48)
-    assert u.atoms[0].charge == pytest.approx(-0.67)
+    assert_almost_equal(u.atoms[0].radius, 1.48, decimal=5)
+    assert_almost_equal(u.atoms[0].charge, -0.67, decimal=5)
     # coordinatey things
     assert_almost_equal(u.atoms[0].position, [15.710, 17.670, 23.340], decimal=4)

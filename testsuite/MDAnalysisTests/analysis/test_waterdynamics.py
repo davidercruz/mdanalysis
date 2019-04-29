@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -22,27 +23,23 @@
 from __future__ import print_function, absolute_import
 import MDAnalysis
 from MDAnalysis.analysis import waterdynamics
-import pytest
 
 from MDAnalysisTests.datafiles import waterPSF, waterDCD
 from MDAnalysisTests.datafiles import PDB, XTC
 
+import pytest
 import numpy as np
-from numpy.testing import assert_almost_equal
+from mock import patch
+from mock import Mock
+from numpy.testing import assert_almost_equal, assert_equal
 
 SELECTION1 = "byres name OH2"
 SELECTION2 = "byres name P1"
-SELECTION3 = "around 4 (resid 151 and name OE1)"
 
 
 @pytest.fixture(scope='module')
 def universe():
     return MDAnalysis.Universe(waterPSF, waterDCD)
-
-
-@pytest.fixture(scope='module')
-def universe_prot():
-    return MDAnalysis.Universe(PDB, XTC)
 
 
 def test_HydrogenBondLifetimes(universe):
@@ -89,20 +86,110 @@ def test_MeanSquareDisplacement_zeroMolecules(universe):
     assert_almost_equal(msd_zero.timeseries[1], 0.0)
 
 
-def test_SurvivalProbability(universe_prot):
-    sp = waterdynamics.SurvivalProbability(universe_prot, SELECTION3, 0, 10, 4)
-    sp.run()
-    assert_almost_equal(sp.timeseries, [1.0, 0.354, 0.267, 0.242], decimal=3)
+def test_SurvivalProbability_t0tf(universe):
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(0, ), (0, ), (7, 6, 5), (6, 5, 4), (5, 4, 3), (4, 3, 2), (3, 2, 1), (0, )]
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop(2))   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, start=2, stop=6)
+        assert_almost_equal(sp.sp_timeseries, [2 / 3.0, 1 / 3.0, 0])
 
 
-def test_SurvivalProbability_t0Ignored(universe_prot):
-    sp = waterdynamics.SurvivalProbability(universe_prot, SELECTION3, 3, 10, 4)
-    sp.run()
-    assert_almost_equal(sp.timeseries, [1.0, 0.391, 0.292, 0.261], decimal=3)
-
+def test_SurvivalProbability_definedTaus(universe):
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(9, 8, 7), (8, 7, 6), (7, 6, 5), (6, 5, 4), (5, 4, 3), (4, 3, 2), (3, 2, 1)]
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop())   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, start=0, stop=6, verbose=True)
+        assert_almost_equal(sp.sp_timeseries, [2 / 3.0, 1 / 3.0, 0])
 
 
 def test_SurvivalProbability_zeroMolecules(universe):
-    sp_zero = waterdynamics.SurvivalProbability(universe, SELECTION2, 0, 6, 3)
-    sp_zero.run()
-    assert_almost_equal(sp_zero.timeseries[1], 0.0)
+    # no atom IDs found
+    with patch.object(universe, 'select_atoms', return_value=Mock(ids=[])) as select_atoms_mock:
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, start=3, stop=6, verbose=True)
+        assert all(np.isnan(sp.sp_timeseries))
+
+
+def test_SurvivalProbability_alwaysPresent(universe):
+    # always the same atom IDs found, 7 and 8
+    with patch.object(universe, 'select_atoms', return_value=Mock(ids=[7, 8])) as select_atoms_mock:
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, start=0, stop=6, verbose=True)
+        assert all(np.equal(sp.sp_timeseries, 1))
+
+
+def test_SurvivalProbability_stepLargerThanDtmax(universe):
+    # Testing if the frames are skipped correctly
+    with patch.object(universe, 'select_atoms', return_value=Mock(ids=(1,))) as select_atoms_mock:
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=2, step=5, stop=9, verbose=True)
+        assert_equal(sp.sp_timeseries, [1, 1])
+        # with tau_max=2 for all the frames we only read 6 of them
+        # this is because the frames which are not used are skipped, and therefore 'select_atoms'
+        assert universe.trajectory.n_frames > 6
+        assert_equal(select_atoms_mock.call_count, 6)
+
+
+def test_SurvivalProbability_stepEqualDtMax(universe):
+    with patch.object(universe, 'select_atoms', return_value=Mock(ids=(1,))) as select_atoms_mock:
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=4, step=5, stop=9, verbose=True)
+        # all frames from 0, with 9 inclusive
+        assert_equal(select_atoms_mock.call_count, 10)
+
+
+def test_SurvivalProbability_intermittency1and2(universe):
+    """
+    Intermittency of 2 means that we still count an atom if it is not present for up to 2 consecutive frames,
+    but then returns at the following step.
+    """
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(9, 8), (), (8,), (9,), (8,), (), (9,8), (), (8,), (9,8,)]
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop())   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, stop=9, verbose=True, intermittency=2)
+        assert all((x == set([9, 8]) for x in sp.selected_ids))
+        assert_almost_equal(sp.sp_timeseries, [1, 1, 1])
+
+
+def test_SurvivalProbability_intermittency2lacking(universe):
+    """
+    If an atom is not present for more than 2 consecutive frames, it is considered to have left the region.
+    """
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(9,), (), (), (), (9,), (), (), (), (9,)]
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop())   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=3, stop=8, verbose=True, intermittency=2)
+        assert_almost_equal(sp.sp_timeseries, [0, 0, 0])
+
+
+def test_SurvivalProbability_intermittency1_step5_noSkipping(universe):
+    """
+    Step leads to skipping frames if (tau_max + 1) + (intermittency * 2) < step.
+    No frames should be skipped.
+    """
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(2, 3), (3,), (2, 3), (3,), (2,), (3,), (2, 3), (3,), (2, 3), (2, 3)]
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop())   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=2, stop=9, verbose=True, intermittency=1, step=5)
+        assert all((x == set([2, 3]) for x in sp.selected_ids))
+        assert_almost_equal(sp.sp_timeseries, [1, 1])
+
+def test_SurvivalProbability_intermittency1_step5_Skipping(universe):
+    """
+    Step leads to skipping frames if (tau_max + 1) * (intermittency * 2) < step.
+    In this case one frame will be skipped per window.
+    """
+    with patch.object(universe, 'select_atoms') as select_atoms_mock:
+        ids = [(1,), (), (1,), (), (1,), (), (1,), (), (1,), (1,)]
+        beforepopsing = len(ids) - 2
+        select_atoms_mock.side_effect = lambda selection: Mock(ids=ids.pop())   # atom IDs fed set by set
+        sp = waterdynamics.SurvivalProbability(universe, "")
+        sp.run(tau_max=1, stop=9, verbose=True, intermittency=1, step=5)
+        assert all((x == set([1]) for x in sp.selected_ids))
+        assert len(sp.selected_ids) == beforepopsing
+        assert_almost_equal(sp.sp_timeseries, [1])

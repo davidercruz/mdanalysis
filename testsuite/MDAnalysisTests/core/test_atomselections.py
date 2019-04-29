@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -23,6 +24,7 @@ from __future__ import division, absolute_import
 
 from six.moves import range
 
+import os
 import itertools
 import numpy as np
 from numpy.testing import(
@@ -40,9 +42,10 @@ from MDAnalysis.tests.datafiles import (
     PSF, DCD,
     PRMpbc, TRJpbc_bz2,
     PSF_NAMD, PDB_NAMD,
-    GRO, NUCL, NUCLsel, TPR, XTC,
+    GRO, RNA_PSF, NUCLsel, TPR, XTC,
     TRZ_psf, TRZ,
     PDB_icodes,
+    PDB_HOLE,
 )
 from MDAnalysisTests import make_Universe
 
@@ -446,20 +449,22 @@ class TestSelectionsTPR(object):
 
 
 class TestSelectionsNucleicAcids(object):
-    @pytest.fixture()
+    @pytest.fixture(scope='class')
     def universe(self):
-        return MDAnalysis.Universe(NUCL)
+        return MDAnalysis.Universe(RNA_PSF)
+
+    @pytest.fixture(scope='class')
+    def universe2(self):
+        return MDAnalysis.Universe(NUCLsel)
+
 
     def test_nucleic(self, universe):
         rna = universe.select_atoms("nucleic")
         assert_equal(rna.n_atoms, 739)
         assert_equal(rna.n_residues, 23)
 
-    def test_nucleic_all(self, universe):
-        u = mda.Universe(NUCLsel)
-
-        sel = u.select_atoms('nucleic')
-
+    def test_nucleic_all(self, universe2):
+        sel = universe2.select_atoms('nucleic')
         assert len(sel) == 34
 
     def test_nucleicbackbone(self, universe):
@@ -492,31 +497,14 @@ class BaseDistanceSelection(object):
 
     Cylindrical methods don't use KDTree
     """
-
-    methods = [('kdtree', False),
-               ('kdtree', True),
-               ('distmat', True),
-               ('distmat', False)]
-
-    @staticmethod
-    def choosemeth(sel, meth, periodic):
-        """hack in the desired apply method"""
-        if meth == 'kdtree':
-            sel.apply = sel._apply_KDTree
-        elif meth == 'distmat':
-            sel.apply = sel._apply_distmat
-
+    @pytest.mark.parametrize('periodic', (True, False))
+    def test_around(self, u, periodic):
+        sel = Parser.parse('around 5.0 resid 1', u.atoms)
         if periodic:
             sel.periodic = True
         else:
             sel.periodic = False
 
-        return sel
-
-    @pytest.mark.parametrize('meth, periodic', methods)
-    def test_around(self, u, meth, periodic):
-        sel = Parser.parse('around 5.0 resid 1', u.atoms)
-        sel = self.choosemeth(sel, meth, periodic)
         result = sel.apply(u.atoms)
 
         r1 = u.select_atoms('resid 1')
@@ -531,38 +519,49 @@ class BaseDistanceSelection(object):
         ref.difference_update(set(r1.indices))
         assert ref == set(result.indices)
 
-    @pytest.mark.parametrize('meth, periodic', methods)
-    def test_spherical_layer(self, u, meth, periodic):
+    @pytest.mark.parametrize('periodic', (True, False))
+    def test_spherical_layer(self, u, periodic):
         sel = Parser.parse('sphlayer 2.4 6.0 resid 1', u.atoms)
-        sel = self.choosemeth(sel, meth, periodic)
+        if periodic:
+            sel.periodic = True
+        else:
+            sel.periodic = False
+
         result = sel.apply(u.atoms)
 
         r1 = u.select_atoms('resid 1')
         box = u.dimensions if periodic else None
-        cog = r1.center_of_geometry(pbc=periodic).reshape(1, 3)
+        cog = r1.center_of_geometry().reshape(1, 3)
         d = distance_array(u.atoms.positions, cog, box=box)
         ref = set(np.where((d > 2.4) & (d < 6.0))[0])
 
         assert ref == set(result.indices)
 
-    @pytest.mark.parametrize('meth, periodic', methods)
-    def test_spherical_zone(self, u, meth, periodic):
+    @pytest.mark.parametrize('periodic', (True, False))
+    def test_spherical_zone(self, u, periodic):
         sel = Parser.parse('sphzone 5.0 resid 1', u.atoms)
-        sel = self.choosemeth(sel, meth, periodic)
+        if periodic:
+            sel.periodic = True
+        else:
+            sel.periodic = False
+
         result = sel.apply(u.atoms)
 
         r1 = u.select_atoms('resid 1')
         box = u.dimensions if periodic else None
-        cog = r1.center_of_geometry(pbc=periodic).reshape(1, 3)
+        cog = r1.center_of_geometry().reshape(1, 3)
         d = distance_array(u.atoms.positions, cog, box=box)
         ref = set(np.where(d < 5.0)[0])
 
         assert ref == set(result.indices)
 
-    @pytest.mark.parametrize('meth, periodic', methods)
-    def test_point(self, u, meth, periodic):
+    @pytest.mark.parametrize('periodic', (True, False))
+    def test_point(self, u, periodic):
         sel = Parser.parse('point 5.0 5.0 5.0  3.0', u.atoms)
-        sel = self.choosemeth(sel, meth, periodic)
+        if periodic:
+            sel.periodic = True
+        else:
+            sel.periodic = False
         result = sel.apply(u.atoms)
 
         box = u.dimensions if periodic else None
@@ -604,6 +603,12 @@ class TestOrthogonalDistanceSelections(BaseDistanceSelection):
         ref = set(u.atoms[mask].indices)
 
         assert ref == set(result.indices)
+
+    @pytest.mark.parametrize('periodic,expected', ([True, 33], [False, 25]))
+    def test_sphzone(self, u, periodic, expected):
+        sel = u.select_atoms('sphzone 5.0 resid 1', periodic=periodic)
+
+        assert len(sel) == expected
 
 
 class TestTriclinicDistanceSelections(BaseDistanceSelection):
@@ -1028,3 +1033,22 @@ def test_arbitrary_atom_group_raises_error():
     u = make_Universe(trajectory=True)
     with pytest.raises(TypeError):
         u.select_atoms('around 2.0 group this', this=u.atoms[0])
+
+
+def test_empty_sel():
+    u = make_Universe(trajectory=True)
+    with pytest.warns(UserWarning):
+        ag = u.atoms.select_atoms("")
+    assert_equal(len(ag), 0)
+    assert isinstance(ag, mda.AtomGroup)
+
+
+def test_record_type_sel():
+    u = mda.Universe(PDB_HOLE)
+
+    assert len(u.select_atoms('record_type ATOM')) == 264
+    assert len(u.select_atoms('not record_type HETATM')) == 264
+    assert len(u.select_atoms('record_type HETATM')) == 8
+
+    assert len(u.select_atoms('name CA and not record_type HETATM')) == 30
+    assert len(u.select_atoms('name CA and record_type HETATM')) == 2

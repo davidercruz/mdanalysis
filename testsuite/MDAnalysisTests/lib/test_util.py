@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -32,11 +33,13 @@ import textwrap
 import numpy as np
 from numpy.testing import (assert_equal, assert_almost_equal,
                            assert_array_almost_equal, assert_array_equal)
+from itertools import combinations_with_replacement as comb_wr
 
 import MDAnalysis as mda
 import MDAnalysis.lib.util as util
 import MDAnalysis.lib.mdamath as mdamath
-from MDAnalysis.lib.util import cached, static_variables, warn_if_not_unique
+from MDAnalysis.lib.util import (cached, static_variables, warn_if_not_unique,
+                                 check_coords)
 from MDAnalysis.core.topologyattrs import Bonds
 from MDAnalysis.exceptions import NoDataError, DuplicateWarning
 
@@ -229,6 +232,202 @@ class TestGeometryFunctions(object):
         assert_almost_equal(mdamath.dihedral(ab, bc, cd), -np.pi / 2)
 
 
+class TestMatrixOperations(object):
+
+    def ref_trivecs(self, box):
+        box = np.asarray(box, dtype=np.float64)
+        x, y, z, a, b, c = box
+        # Only positive edge lengths and angles in (0, 180) are allowed:
+        if np.any(box <= 0) or a >= 180 or b >= 180 or c >= 180:
+            ref = np.zeros((3, 3), dtype=np.float32)
+        # detect orthogonal boxes:
+        elif a == 90 and b == 90 and c == 90:
+            ref = np.diag(box[:3].astype(np.float32))
+        else:
+            ref = np.zeros((3, 3), dtype=np.float64)
+            cos_a = 0.0 if a == 90 else np.cos(np.deg2rad(a))
+            cos_b = 0.0 if b == 90 else np.cos(np.deg2rad(b))
+            cos_c = 0.0 if c == 90 else np.cos(np.deg2rad(c))
+            sin_c = 1.0 if c == 90 else np.sin(np.deg2rad(c))
+            ref[0, 0] = x
+            ref[1, 0] = y * cos_c
+            ref[1, 1] = y * sin_c
+            ref[2, 0] = z * cos_b
+            ref[2, 1] = z * (cos_a - cos_b * cos_c) / sin_c
+            ref[2, 2] = np.sqrt(z * z - ref[2, 0] ** 2 - ref[2, 1] ** 2)
+            if ref[2, 2] == 0 or np.isnan(ref[2, 2]):
+                ref[:, :] = 0.0
+            ref = ref.astype(np.float32)
+        return ref
+
+    def ref_trivecs_unsafe(self, box):
+        box = np.asarray(box, dtype=np.float64)
+        x, y, z, a, b, c = box
+        # detect orthogonal boxes:
+        if a == 90 and b == 90 and c == 90:
+            ref = np.diag(box[:3].astype(np.float32))
+        else:
+            ref = np.zeros((3, 3), dtype=np.float64)
+            cos_a = 0.0 if a == 90 else np.cos(np.deg2rad(a))
+            cos_b = 0.0 if b == 90 else np.cos(np.deg2rad(b))
+            cos_c = 0.0 if c == 90 else np.cos(np.deg2rad(c))
+            sin_c = 1.0 if c == 90 else np.sin(np.deg2rad(c))
+            ref[0, 0] = x
+            ref[1, 0] = y * cos_c
+            ref[1, 1] = y * sin_c
+            ref[2, 0] = z * cos_b
+            ref[2, 1] = z * (cos_a - cos_b * cos_c) / sin_c
+            ref[2, 2] = np.sqrt(z * z - ref[2, 0] ** 2 - ref[2, 1] ** 2)
+            ref = ref.astype(np.float32)
+        return ref
+
+    def ref_tribox(self, tri_vecs):
+        tri_vecs = tri_vecs.astype(np.float64)
+        x, y, z = np.linalg.norm(tri_vecs, axis=1)
+        a = np.rad2deg(np.arccos(np.dot(tri_vecs[1], tri_vecs[2]) / (y * z)))
+        b = np.rad2deg(np.arccos(np.dot(tri_vecs[0], tri_vecs[2]) / (x * z)))
+        c = np.rad2deg(np.arccos(np.dot(tri_vecs[0], tri_vecs[1]) / (x * y)))
+        box = np.array([x, y, z, a, b, c], dtype=np.float32)
+        if not (np.all(box > 0) and a < 180 and b < 180 and c < 180):
+            box = np.zeros(6, dtype=np.float32)
+        return box
+
+    @pytest.mark.parametrize('lengths', comb_wr([-1, 0, 1, 2], 3))
+    @pytest.mark.parametrize('angles',
+                             comb_wr([-10, 0, 20, 70, 90, 120, 180], 3))
+    def test_triclinic_vectors(self, lengths, angles):
+        box = lengths + angles
+        ref = self.ref_trivecs(box)
+        res = mdamath.triclinic_vectors(box)
+        assert_array_equal(res, ref)
+        # check for default dtype:
+        assert res.dtype == np.float32
+        # belts and braces, make sure upper triangle is always zero:
+        assert not(res[0, 1] or res[0, 2] or res[1, 2])
+
+    @pytest.mark.parametrize('alpha', (60, 90))
+    @pytest.mark.parametrize('beta', (60, 90))
+    @pytest.mark.parametrize('gamma', (60, 90))
+    def test_triclinic_vectors_right_angle_zeros(self, alpha, beta, gamma):
+        angles = [alpha, beta, gamma]
+        box = [10, 20, 30] + angles
+        mat = mdamath.triclinic_vectors(box)
+        if 90 in angles:
+            if gamma == 90:
+                assert not mat[1, 0]
+                if alpha == 90:
+                    assert not mat[2, 1]
+                    if beta == 90:
+                        assert not mat[2, 0]
+                    else:
+                        assert mat[2, 0]
+                else:
+                    assert mat[2, 1]
+            else:
+                assert mat[1, 0]
+                if beta == 90:
+                    assert not mat[2, 0]
+                    if alpha == 90:
+                        assert not mat[2, 1]
+                    else:
+                        assert mat[2,1]
+                else:
+                    assert mat[2, 0]
+                    # 2, 1 cannot be zero here regardless of alpha
+                    assert mat[2, 1]
+        else:
+            assert mat[1, 0] and mat[2, 0] and mat[2, 1]
+
+    @pytest.mark.parametrize('dtype', (int, float, np.float32, np.float64))
+    def test_triclinic_vectors_retval(self, dtype):
+        # valid box
+        box = [1, 1, 1, 70, 80, 90]
+        res = mdamath.triclinic_vectors(box, dtype=dtype)
+        assert res.shape == (3, 3)
+        assert res.dtype == dtype
+        # zero box
+        box = [0, 0, 0, 0, 0, 0]
+        res = mdamath.triclinic_vectors(box, dtype=dtype)
+        assert res.shape == (3, 3)
+        assert res.dtype == dtype
+        assert np.all(res == 0)
+        # invalid box angles
+        box = [1, 1, 1, 40, 40, 90]
+        res = mdamath.triclinic_vectors(box, dtype=dtype)
+        assert res.shape == (3, 3)
+        assert res.dtype == dtype
+        assert np.all(res == 0)
+        # invalid box lengths:
+        box = [-1, 1, 1, 70, 80, 90]
+        res = mdamath.triclinic_vectors(box, dtype=dtype)
+        assert res.shape == (3, 3)
+        assert res.dtype == dtype
+        assert np.all(res == 0)
+
+    def test_triclinic_vectors_box_cycle(self):
+        max_error = 0.0
+        for a in range(10, 91, 10):
+            for b in range(10, 91, 10):
+                for g in range(10, 91, 10):
+                    ref = np.array([1, 1, 1, a, b, g], dtype=np.float32)
+                    res = mdamath.triclinic_box(*mdamath.triclinic_vectors(ref))
+                    if not np.all(res == 0.0):
+                        assert_almost_equal(res, ref, 5)
+
+    @pytest.mark.parametrize('angles', ([70, 70, 70],
+                                        [70, 70, 90],
+                                        [70, 90, 70],
+                                        [90, 70, 70],
+                                        [70, 90, 90],
+                                        [90, 70, 90],
+                                        [90, 90, 70]))
+    def test_triclinic_vectors_box_cycle_exact(self, angles):
+        # These cycles were inexact prior to PR #2201
+        ref = np.array([10.1, 10.1, 10.1] + angles, dtype=np.float32)
+        res = mdamath.triclinic_box(*mdamath.triclinic_vectors(ref))
+        assert_equal(res, ref)
+
+    @pytest.mark.parametrize('lengths', comb_wr([-1, 0, 1, 2], 3))
+    @pytest.mark.parametrize('angles',
+                             comb_wr([-10, 0, 20, 70, 90, 120, 180], 3))
+    def test_triclinic_box(self, lengths, angles):
+        tri_vecs = self.ref_trivecs_unsafe(lengths + angles)
+        ref = self.ref_tribox(tri_vecs)
+        res = mdamath.triclinic_box(*tri_vecs)
+        assert_array_equal(res, ref)
+        assert res.dtype == ref.dtype
+
+    @pytest.mark.parametrize('lengths', comb_wr([-1, 0, 1, 2], 3))
+    @pytest.mark.parametrize('angles',
+                             comb_wr([-10, 0, 20, 70, 90, 120, 180], 3))
+    def test_box_volume(self, lengths, angles):
+        box = np.array(lengths + angles, dtype=np.float32)
+        assert_almost_equal(mdamath.box_volume(box),
+                            np.linalg.det(self.ref_trivecs(box)),
+                            decimal=5)
+
+    def test_sarrus_det(self):
+        comb = comb_wr(np.linspace(-133.7, 133.7, num=5), 9)
+        # test array of matrices:
+        matrix = np.array(tuple(comb)).reshape((-1, 5, 3, 3))
+        ref = np.linalg.det(matrix)
+        res = mdamath.sarrus_det(matrix)
+        assert_almost_equal(res, ref, 7)
+        assert ref.dtype == res.dtype == np.float64
+        # test single matrices:
+        matrix = matrix.reshape(-1, 3, 3)
+        ref = ref.ravel()
+        res = np.array([mdamath.sarrus_det(m) for m in matrix])
+        assert_almost_equal(res, ref, 7)
+        assert ref.dtype == res.dtype == np.float64
+
+    @pytest.mark.parametrize('shape', ((0,), (3, 2), (2, 3), (1, 1, 3, 1)))
+    def test_sarrus_det_wrong_shape(self, shape):
+        matrix = np.zeros(shape)
+        with pytest.raises(ValueError):
+            mdamath.sarrus_det(matrix)
+
+
 class TestMakeWhole(object):
     """Set up a simple system:
 
@@ -252,6 +451,14 @@ class TestMakeWhole(object):
         universe.add_TopologyAttr(Bonds(bondlist))
         return universe
 
+    def test_return_value(self, universe):
+        ag = universe.residues[0].atoms
+        orig_pos = ag.positions.copy()
+        retval = mdamath.make_whole(ag)
+        assert retval.dtype == np.float32
+        assert_array_equal(ag.positions, retval)
+        assert np.any(ag.positions != orig_pos)
+
     def test_single_atom_no_bonds(self):
         # Call make_whole on single atom with no bonds, shouldn't move
         u = mda.Universe(Make_Whole)
@@ -263,7 +470,13 @@ class TestMakeWhole(object):
         refpos = ag.positions.copy()
         mdamath.make_whole(ag)
 
-        assert_array_almost_equal(ag.positions, refpos)
+        assert_array_equal(ag.positions, refpos) # must be untouched
+
+    def test_empty_ag(self, universe):
+        ag = mda.AtomGroup([], universe)
+        retval = mdamath.make_whole(ag)
+        assert retval.dtype == np.float32
+        assert_array_equal(retval, np.empty((0, 3), dtype=np.float32))
 
     def test_scrambled_ag(self, universe):
         # if order of atomgroup is mixed
@@ -274,6 +487,37 @@ class TestMakeWhole(object):
         # artificial system which uses 1nm bonds, so
         # largest bond should be 20A
         assert ag.bonds.values().max() < 20.1
+
+    def test_out_of_place(self, universe):
+        ag = universe.residues[0].atoms
+        orig_pos = ag.positions.copy()
+        mdamath.make_whole(ag, inplace=False)
+        # positions must be untouched:
+        assert_array_equal(ag.positions, orig_pos)
+
+    def test_double_precision_box(self):
+        # This test could in principle be removed since PR #2213
+        # universe with double precision box containing a 2-atom molecule
+        # broken accross a corner:
+        u = mda.Universe.empty(
+            n_atoms=2,
+            n_residues=1,
+            n_segments=1,
+            atom_resindex=[0, 0],
+            residue_segindex=[0],
+            trajectory=True,
+            velocities=False,
+            forces=False)
+        ts = u.trajectory.ts
+        ts.frame = 0
+        ts.dimensions = [10, 10, 10, 90, 90, 90]
+        #assert ts.dimensions.dtype == np.float64  # not applicable since #2213
+        ts.positions = np.array([[1, 1, 1,], [9, 9, 9]], dtype=np.float32)
+        u.add_TopologyAttr(Bonds([(0, 1)]))
+        mdamath.make_whole(u.atoms)
+        assert_array_almost_equal(u.atoms.positions,
+                                  np.array([[1, 1, 1,], [-1, -1, -1]],
+                                           dtype=np.float32))
 
     @staticmethod
     @pytest.fixture()
@@ -970,8 +1214,6 @@ class TestBlocksOf(object):
 
         view = util.blocks_of(arr, 1, 1)
 
-        # should return a (4, 1, 1) view
-        # ie 4 lots of 1x1
         assert view.shape == (4, 1, 1)
         assert_array_almost_equal(view,
                                   np.array([[[0]], [[5]], [[10]], [[15]]]))
@@ -990,7 +1232,6 @@ class TestBlocksOf(object):
 
         view = util.blocks_of(arr, 2, 2)
 
-        # should return (2, 2, 2)
         assert view.shape == (2, 2, 2)
         assert_array_almost_equal(view, np.array([[[0, 1], [4, 5]],
                                                   [[10, 11], [14, 15]]]))
@@ -1012,10 +1253,20 @@ class TestBlocksOf(object):
 
         assert view.shape == (4, 2, 1)
 
+    def test_blocks_of_4(self):
+        # testing block exceeding array size results in empty view
+        arr = np.arange(4).reshape(2, 2)
+        view = util.blocks_of(arr, 3, 3)
+        assert view.shape == (0, 3, 3)
+        view[:] = 100
+        assert_array_equal(arr, np.arange(4).reshape(2, 2))
+
     def test_blocks_of_ValueError(self):
         arr = np.arange(16).reshape(4, 4)
         with pytest.raises(ValueError):
-            util.blocks_of(arr, 2, 1)
+            util.blocks_of(arr, 2, 1)  # blocks don't fit
+        with pytest.raises(ValueError):
+            util.blocks_of(arr[:, ::2], 2, 1)  # non-contiguous input
 
 
 class TestNamespace(object):
@@ -1158,7 +1409,6 @@ class TestWarnIfNotUnique(object):
     """Tests concerning the decorator @warn_if_not_uniue
     """
 
-    @pytest.fixture()
     def warn_msg(self, func, group, group_name):
         msg = ("{}.{}(): {} {} contains duplicates. Results might be "
                "biased!".format(group.__class__.__name__, func.__name__,
@@ -1326,6 +1576,265 @@ class TestWarnIfNotUnique(object):
                 assert not w.list
             assert len(record) == 0
 
+class TestCheckCoords(object):
+    """Tests concerning the decorator @check_coords
+    """
+
+    prec = 6
+
+    def test_default_options(self):
+        a_in = np.zeros(3, dtype=np.float32)
+        b_in = np.ones(3, dtype=np.float32)
+        b_in2 = np.ones((2, 3), dtype=np.float32)
+
+        @check_coords('a','b')
+        def func(a, b):
+            # check that enforce_copy is True by default:
+            assert a is not a_in
+            assert b is not b_in
+            # check that convert_single is True by default:
+            assert a.shape == (1, 3)
+            assert b.shape == (1, 3)
+            return a + b
+
+        # check that allow_single is True by default:
+        res = func(a_in, b_in)
+        # check that reduce_result_if_single is True by default:
+        assert res.shape == (3,)
+        # check correct function execution:
+        assert_array_equal(res, b_in)
+
+        # check that check_lenghts_match is True by default:
+        with pytest.raises(ValueError):
+            res = func(a_in, b_in2)
+
+    def test_enforce_copy(self):
+
+        a_2d = np.ones((1, 3), dtype=np.float32)
+        b_1d = np.zeros(3, dtype=np.float32)
+        c_2d = np.zeros((1, 6), dtype=np.float32)[:, ::2]
+        d_2d = np.zeros((1, 3), dtype=np.int64)
+
+        @check_coords('a', 'b', 'c', 'd', enforce_copy=False)
+        def func(a, b, c, d):
+            # Assert that if enforce_copy is False:
+            # no copy is made if input shape, order, and dtype are correct:
+            assert a is a_2d
+            # a copy is made if input shape has to be changed:
+            assert b is not b_1d
+            # a copy is made if input order has to be changed:
+            assert c is not c_2d
+            # a copy is made if input dtype has to be changed:
+            assert d is not d_2d
+            # Assert correct dtype conversion:
+            assert d.dtype == np.float32
+            assert_almost_equal(d, d_2d, self.prec)
+            # Assert all shapes are converted to (1, 3):
+            assert a.shape == b.shape == c.shape == d.shape == (1, 3)
+            return a + b + c + d
+
+        # Call func() to:
+        # - test the above assertions
+        # - ensure that input of single coordinates is simultaneously possible
+        #   with different shapes (3,) and (1, 3)
+        res = func(a_2d, b_1d, c_2d, d_2d)
+        # Since some inputs are not 1d, even though reduce_result_if_single is
+        # True, the result must have shape (1, 3):
+        assert res.shape == (1, 3)
+        # check correct function execution:
+        assert_array_equal(res, a_2d)
+
+    def test_no_allow_single(self):
+
+        @check_coords('a', allow_single=False)
+        def func(a):
+            pass
+
+        with pytest.raises(ValueError) as err:
+            func(np.zeros(3, dtype=np.float32))
+            assert err.msg == ("func(): a.shape must be (n, 3), got (3,).")
+
+    def test_no_convert_single(self):
+
+        a_1d = np.arange(-3, 0, dtype=np.float32)
+
+        @check_coords('a', enforce_copy=False, convert_single=False)
+        def func(a):
+            # assert no conversion and no copy were performed:
+            assert a is a_1d
+            return a
+
+        res = func(a_1d)
+        # Assert result has been reduced:
+        assert res == a_1d[0]
+        assert type(res) is np.float32
+
+    def test_no_reduce_result_if_single(self):
+
+        a_1d = np.zeros(3, dtype=np.float32)
+
+        # Test without shape conversion:
+        @check_coords('a', enforce_copy=False, convert_single=False,
+                      reduce_result_if_single=False)
+        def func(a):
+            return a
+
+        res = func(a_1d)
+        # make sure the input array is just passed through:
+        assert res is a_1d
+
+        # Test with shape conversion:
+        @check_coords('a', enforce_copy=False, reduce_result_if_single=False)
+        def func(a):
+            return a
+
+        res = func(a_1d)
+        assert res.shape == (1, 3)
+        assert_array_equal(res[0], a_1d)
+
+    def test_no_check_lengths_match(self):
+
+        a_2d = np.zeros((1, 3), dtype=np.float32)
+        b_2d = np.zeros((3, 3), dtype=np.float32)
+
+        @check_coords('a', 'b', enforce_copy=False, check_lengths_match=False)
+        def func(a, b):
+            return a, b
+
+        res_a, res_b = func(a_2d, b_2d)
+        # Assert arrays are just passed through:
+        assert res_a is a_2d
+        assert res_b is b_2d
+
+    def test_invalid_input(self):
+
+        a_inv_dtype = np.array([['hello', 'world', '!']])
+        a_inv_type = [[0., 0., 0.]]
+        a_inv_shape_1d = np.zeros(6, dtype=np.float32)
+        a_inv_shape_2d = np.zeros((3, 2), dtype=np.float32)
+
+        @check_coords('a')
+        def func(a):
+            pass
+
+        with pytest.raises(TypeError) as err:
+            func(a_inv_dtype)
+            assert err.msg.startswith("func(): a.dtype must be convertible to "
+                                      "float32, got ")
+
+        with pytest.raises(TypeError) as err:
+            func(a_inv_type)
+            assert err.msg == ("func(): Parameter 'a' must be a numpy.ndarray, "
+                               "got <class 'list'>.")
+
+        with pytest.raises(ValueError) as err:
+            func(a_inv_shape_1d)
+            assert err.msg == ("func(): a.shape must be (3,) or (n, 3), got "
+                               "(6,).")
+
+        with pytest.raises(ValueError) as err:
+            func(a_inv_shape_2d)
+            assert err.msg == ("func(): a.shape must be (3,) or (n, 3), got "
+                               "(3, 2).")
+
+    def test_usage_with_kwargs(self):
+
+        a_2d = np.zeros((1, 3), dtype=np.float32)
+
+        @check_coords('a', enforce_copy=False)
+        def func(a, b, c=0):
+            return a, b, c
+
+        # check correct functionality if passed as keyword argument:
+        a, b, c = func(a=a_2d, b=0, c=1)
+        assert a is a_2d
+        assert b == 0
+        assert c == 1
+
+    def test_wrong_func_call(self):
+
+        @check_coords('a', enforce_copy=False)
+        def func(a, b, c=0):
+            pass
+
+        # Make sure invalid call marker is present:
+        func._invalid_call = False
+
+        # usage with posarg doubly defined:
+        assert not func._invalid_call
+        with pytest.raises(TypeError):
+            func(0, a=0)  # pylint: disable=redundant-keyword-arg
+        assert func._invalid_call
+        func._invalid_call = False
+
+        # usage with missing posargs:
+        assert not func._invalid_call
+        with pytest.raises(TypeError):
+            func(0)
+        assert func._invalid_call
+        func._invalid_call = False
+
+        # usage with missing posargs (supplied as kwargs):
+        assert not func._invalid_call
+        with pytest.raises(TypeError):
+            func(a=0, c=1)
+        assert func._invalid_call
+        func._invalid_call = False
+
+        # usage with too many posargs:
+        assert not func._invalid_call
+        with pytest.raises(TypeError):
+            func(0, 0, 0, 0)
+        assert func._invalid_call
+        func._invalid_call = False
+
+        # usage with unexpected kwarg:
+        assert not func._invalid_call
+        with pytest.raises(TypeError):
+            func(a=0, b=0, c=1, d=1)  # pylint: disable=unexpected-keyword-arg
+        assert func._invalid_call
+        func._invalid_call = False
+
+    def test_wrong_decorator_usage(self):
+
+        # usage without parantheses:
+        @check_coords
+        def func():
+            pass
+
+        with pytest.raises(TypeError):
+            func()
+
+        # usage without arguments:
+        with pytest.raises(ValueError) as err:
+            @check_coords()
+            def func():
+                pass
+
+            assert err.msg == ("Decorator check_coords() cannot be used "
+                               "without positional arguments.")
+
+        # usage with defaultarg:
+        with pytest.raises(ValueError) as err:
+            @check_coords('a')
+            def func(a=1):
+                pass
+
+            assert err.msg == ("In decorator check_coords(): Name 'a' doesn't "
+                               "correspond to any positional argument of the "
+                               "decorated function func().")
+
+        # usage with invalid parameter name:
+        with pytest.raises(ValueError) as err:
+            @check_coords('b')
+            def func(a):
+                pass
+
+            assert err.msg == ("In decorator check_coords(): Name 'b' doesn't "
+                               "correspond to any positional argument of the "
+                               "decorated function func().")
+
+
 @pytest.mark.parametrize("old_name", (None, "MDAnalysis.Universe"))
 @pytest.mark.parametrize("new_name", (None, "Multiverse"))
 @pytest.mark.parametrize("remove", (None, "99.0.0", 2099))
@@ -1401,3 +1910,55 @@ def test_dedent_docstring(text):
     doc = util.dedent_docstring(text)
     for line in doc.splitlines():
         assert line == line.lstrip()
+
+
+class TestCheckBox(object):
+
+    prec = 6
+    ref_ortho = np.ones(3, dtype=np.float32)
+    ref_tri_vecs = np.array([[1, 0, 0], [0, 1, 0], [0, 2 ** 0.5, 2 ** 0.5]],
+                            dtype=np.float32)
+
+    @pytest.mark.parametrize('box',
+        ([1, 1, 1, 90, 90, 90],
+         (1, 1, 1, 90, 90, 90),
+         ['1', '1', 1, 90, '90', '90'],
+         ('1', '1', 1, 90, '90', '90'),
+         np.array(['1', '1', 1, 90, '90', '90']),
+         np.array([1, 1, 1, 90, 90, 90], dtype=np.float32),
+         np.array([1, 1, 1, 90, 90, 90], dtype=np.float64),
+         np.array([1, 1, 1, 1, 1, 1, 90, 90, 90, 90, 90, 90],
+                  dtype=np.float32)[::2]))
+    def test_ckeck_box_ortho(self, box):
+        boxtype, checked_box = util.check_box(box)
+        assert boxtype == 'ortho'
+        assert_equal(checked_box, self.ref_ortho)
+        assert checked_box.dtype == np.float32
+        assert checked_box.flags['C_CONTIGUOUS']
+
+    @pytest.mark.parametrize('box',
+         ([1, 1, 2, 45, 90, 90],
+          (1, 1, 2, 45, 90, 90),
+          ['1', '1', 2, 45, '90', '90'],
+          ('1', '1', 2, 45, '90', '90'),
+          np.array(['1', '1', 2, 45, '90', '90']),
+          np.array([1, 1, 2, 45, 90, 90], dtype=np.float32),
+          np.array([1, 1, 2, 45, 90, 90], dtype=np.float64),
+          np.array([1, 1, 1, 1, 2, 2, 45, 45, 90, 90, 90, 90],
+                   dtype=np.float32)[::2]))
+    def test_check_box_tri_vecs(self, box):
+        boxtype, checked_box = util.check_box(box)
+        assert boxtype == 'tri_vecs'
+        assert_almost_equal(checked_box, self.ref_tri_vecs, self.prec)
+        assert checked_box.dtype == np.float32
+        assert checked_box.flags['C_CONTIGUOUS']
+
+    def test_check_box_wrong_data(self):
+        with pytest.raises(ValueError):
+            wrongbox = ['invalid', 1, 1, 90, 90, 90]
+            boxtype, checked_box = util.check_box(wrongbox)
+
+    def test_check_box_wrong_shape(self):
+        with pytest.raises(ValueError):
+            wrongbox = np.ones((3, 3), dtype=np.float32)
+            boxtype, checked_box = util.check_box(wrongbox)

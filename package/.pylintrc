@@ -105,7 +105,6 @@ enable=abstract-class-instantiated,
        global-variable-not-assigned,
        global-variable-undefined,
        hex-method,
-       import-self,
        import-star-module-level,
        inconsistent-mro,
        inherit-non-class,
@@ -200,7 +199,6 @@ enable=abstract-class-instantiated,
        xrange-builtin,
        zip-builtin-not-iterating,
        map-builtin-not-iterating,
-       range-builtin-not-iterating,
 
 # Things we'd like to try.
 # Procedure:

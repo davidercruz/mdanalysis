@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -52,7 +53,7 @@ def translate(vector):
     """
     Translates the coordinates of a given :class:`~MDAnalysis.coordinates.base.Timestep`
     instance by a given vector.
-    
+
     Example
     -------
     
@@ -67,7 +68,7 @@ def translate(vector):
     ----------
     vector: array-like
         coordinates of the vector to which the coordinates will be translated
-        
+
     Returns
     -------
     MDAnalysis.coordinates.base.Timestep
@@ -77,12 +78,12 @@ def translate(vector):
         vector = np.float32(vector)
     else:
         raise ValueError("{} vector is too short".format(vector))
-    
+
     def wrapped(ts):
         ts.positions += vector
-        
+
         return ts
-    
+
     return wrapped
 
 
@@ -91,8 +92,8 @@ def center_in_box(ag, weights=None, center_to=None, wrap=False, unwrap=False):
     Translates the coordinates of a given :class:`~MDAnalysis.coordinates.base.Timestep`
     instance so that the center of geometry/mass of the given :class:`~MDAnalysis.core.groups.AtomGroup`
     is centered on the unit cell. The unit cell dimensions are taken from the input Timestep object.
-    If a point is given, the center of the atomgroup will be translated to this point instead. 
-    
+    If a point is given, the center of the atomgroup will be translated to this point instead.
+
     Example
     -------
     
@@ -100,7 +101,7 @@ def center_in_box(ag, weights=None, center_to=None, wrap=False, unwrap=False):
     cell:
     
     .. code-block:: python
-    
+
         ag = u.residues[1].atoms
         transform = mda.transformations.center(ag, weights='mass')
         u.trajectory.add_transformations(transform)
@@ -134,7 +135,7 @@ def center_in_box(ag, weights=None, center_to=None, wrap=False, unwrap=False):
     MDAnalysis.coordinates.base.Timestep
     
     """
-    
+
     pbc_arg = wrap
     if center_to:
         center_to = np.asarray(center_to, np.float32)
@@ -167,9 +168,9 @@ def center_in_box(ag, weights=None, center_to=None, wrap=False, unwrap=False):
 
         vector = boxcenter - ag_center
         ts.positions += vector
-        
+
         return ts
-    
+
     return wrapped
 
     

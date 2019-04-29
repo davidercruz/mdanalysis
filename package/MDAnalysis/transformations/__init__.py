@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -96,3 +97,5 @@ from .translate import translate, center_in_box, center_in_plane, center_in_axis
 from .rotate import rotateby
 from .fit import fit_translation, fit_rot_trans
 from .wrap import wrap, unwrap
+from .positionaveraging import PositionAverager
+

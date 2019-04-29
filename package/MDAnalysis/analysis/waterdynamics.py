@@ -14,6 +14,7 @@
 # MDAnalysis: A Python package for the rapid analysis of molecular dynamics
 # simulations. In S. Benthall and S. Rostrup editors, Proceedings of the 15th
 # Python in Science Conference, pages 102-109, Austin, TX, 2016. SciPy.
+# doi: 10.25080/majora-629e541a-00e
 #
 # N. Michaud-Agrawal, E. J. Denning, T. B. Woolf, and O. Beckstein.
 # MDAnalysis: A Toolkit for the Analysis of Molecular Dynamics Simulations.
@@ -275,33 +276,71 @@ water molecules, a weak rise mean slow movement of particles::
 SurvivalProbability
 ~~~~~~~~~~~~~~~~~~~
 
-Analyzing survival probability (SP) :class:`SurvivalProbability` for water
-molecules. In this case we are analyzing how long water molecules remain in a
-sphere of radius 12.3 centered in the geometrical center of resid 42, 26, 34
-and 80.  A slow decay of SP means a long permanence time of water molecules in
+Analyzing survival probability (SP) :class:`SurvivalProbability` of molecules.
+In this case we are analyzing how long water molecules remain in a
+sphere of radius 12.3 centered in the geometrical center of resid 42 and 26.
+A slow decay of SP means a long permanence time of water molecules in
 the zone, on the other hand, a fast decay means a short permanence time::
 
   import MDAnalysis
   from MDAnalysis.analysis.waterdynamics import SurvivalProbability as SP
+  import matplotlib.pyplot as plt
 
-  u = MDAnalysis.Universe(pdb, trajectory)
-  selection = "byres name OH2 and sphzone 12.3 (resid 42 or resid 26 or resid 34 or resid 80) "
-  SP_analysis = SP(universe, selection, 0, 100, 20)
-  SP_analysis.run()
-  #now we print data ready to graph. The graph
-  #represents SP vs t
-  time = 0
-  for sp in SP_analysis.timeseries:
-        print("{time} {sp}".format(time=time, sp=sp))
-        time += 1
+  universe = MDAnalysis.Universe(pdb, trajectory)
+  selection = "byres name OH2 and sphzone 12.3 (resid 42 or resid 26) "
+  sp = SP(universe, selection, verbose=True)
+  sp.run(start=0, stop=100, tau_max=20)
+  tau_timeseries = sp.tau_timeseries
+  sp_timeseries = sp.sp_timeseries
 
-  #Plot
-  plt.xlabel('time')
+  # print in console
+  for tau, sp in zip(tau_timeseries, sp_timeseries):
+        print("{time} {sp}".format(time=tau, sp=sp))
+
+  # SP is not calculated at tau=0, but if you would like to plot SP=1 at tau=0:
+  tau_timeseries.insert(0, 0)
+  sp_timeseries.insert(1, 0)
+
+  # plot
+  plt.xlabel('Time')
   plt.ylabel('SP')
   plt.title('Survival Probability')
-  plt.plot(range(0,time),MSD_analysis.timeseries)
+  plt.plot(tau_timeseries, sp_timeseries)
   plt.show()
 
+Another example applies to the situation where you work with many different "residues".
+Here we calculate the SP of a potassium ion around each lipid in a membrane and
+average the results. In this example, if the SP analysis were run without treating each lipid
+separately, potassium ions may hop from one lipid to another and still be counted as remaining
+in the specified region. That is, the survival probability of the potassium ion around the
+entire membrane will be calculated.
+
+Note, for this example, it is advisable to use `Universe(in_memory=True)` to ensure that the
+simulation is not being reloaded into memory for each lipid::
+
+  import MDAnalysis as mda
+  from MDAnalysis.analysis.waterdynamics import SurvivalProbability as SP
+  import numpy as np
+
+  u = mda.Universe("md.gro", "md100ns.xtc", in_memory=True)
+  lipids = u.select_atoms('resname LIPIDS')
+  joined_sp_timeseries = [[] for _ in range(20)]
+  for lipid in lipids.residues:
+      print("Lipid ID: %d" % lipid.resid)
+
+      selection = "resname POTASSIUM and around 3.5 (resid %d and name O13 O14) " % lipid.resid
+      sp = SP(u, selection, verbose=True)
+      sp.run(tau_max=20)
+
+      # Raw SP points for each tau:
+      for sps, new_sps in zip(joined_sp_timeseries, sp.sp_timeseries_data):
+          sps.extend(new_sps)
+
+  # average all SP datapoints
+  sp_data = [np.mean(sp) for sp in joined_sp_timeseries]
+
+  for tau, sp in zip(range(1, tau_max + 1), sp_data):
+      print("{time} {sp}".format(time=tau, sp=sp))
 
 .. _Output:
 
@@ -376,16 +415,13 @@ represents a MSD value in its respective window timestep. Data is stored in
 SurvivalProbability
 ~~~~~~~~~~~~~~~~~~~
 
-Survival Probability (SP) data is returned in a list, which each element
-represents a SP value in its respective window timestep. Data is stored in
-:attr:`SurvivalProbability.timeseries`::
+Survival Probability (SP) computes two lists: a list of taus (:attr:`SurvivalProbability.tau_timeseries`) and a list of
+the corresponding survival probabilities (:attr:`SurvivalProbability.sp_timeseries`).
 
-    results = [
-         # SP values order by window timestep
-            <SP_t0>, <SP_t1>, ...
-     ]
+    results = [ tau1, tau2, ..., tau_n ], [ sp_tau1, sp_tau2, ..., sp_tau_n]
 
-
+Additionally, a list :attr:`SurvivalProbability.sp_timeseries_data`, is provided which contains
+a list of all SPs calculated for each tau. This can be used to compute the distribution or time dependence of SP, etc.
 
 Classes
 --------
@@ -412,13 +448,16 @@ Classes
 
 """
 from __future__ import print_function, division, absolute_import
+
+import warnings
+
 from six.moves import range, zip_longest
 
 import numpy as np
 import multiprocessing
 
 import MDAnalysis.analysis.hbonds
-from MDAnalysis.lib.log import _set_verbose, ProgressMeter
+from MDAnalysis.lib.log import ProgressMeter
 
 
 class HydrogenBondLifetimes(object):
@@ -595,11 +634,10 @@ class HydrogenBondLifetimes(object):
         return a
 
     def _HBA(self, ts, conn, universe, selAtom1, selAtom2,
-             verbose=None, quiet=None):
+             verbose=False):
         """
         Main function for calculate C_i and C_c in parallel.
         """
-        verbose = _set_verbose(verbose, quiet, default=False)
         finalGetResidue1 = selAtom1
         finalGetResidue2 = selAtom2
         frame = ts.frame
@@ -964,9 +1002,9 @@ class AngularDistribution(object):
         lencosThetaHH = len(cosThetaHH)
         lencosThetadip = len(cosThetadip)
         histInterval = bins
-        histcosThetaOH = np.histogram(cosThetaOH, histInterval, normed=True)
-        histcosThetaHH = np.histogram(cosThetaHH, histInterval, normed=True)
-        histcosThetadip = np.histogram(cosThetadip, histInterval, normed=True)
+        histcosThetaOH = np.histogram(cosThetaOH, histInterval, density=True)
+        histcosThetaHH = np.histogram(cosThetaHH, histInterval, density=True)
+        histcosThetadip = np.histogram(cosThetadip, histInterval, density=True)
 
         return (histcosThetaOH, histcosThetaHH, histcosThetadip)
 
@@ -1175,17 +1213,16 @@ class MeanSquareDisplacement(object):
 
 
 class SurvivalProbability(object):
-    r"""Survival probability analysis
-
-    Function to evaluate the Survival Probability (SP). The SP gives the
-    probability for a group of particles to remain in certain region. The SP is
-    given by:
+    r"""
+    Survival Probability (SP) gives the probability for a group of particles to remain in a certain region.
+    The SP is given by:
 
     .. math::
         P(\tau) = \frac1T \sum_{t=1}^T \frac{N(t,t+\tau)}{N(t)}
 
     where :math:`T` is the maximum time of simulation, :math:`\tau` is the
-    timestep and :math:`N` the number of particles in certain time.
+    timestep, :math:`N(t)` the number of particles at time :math:`t`, and
+    :math:`N(t, t+\tau)` is the number of particles at every frame from :math:`t` to `\tau`.
 
 
     Parameters
@@ -1194,99 +1231,213 @@ class SurvivalProbability(object):
       Universe object
     selection : str
       Selection string; any selection is allowed. With this selection you
-      define the region/zone where to analyze, e.g.: "selection_a" and "zone"
-      (see `SP-examples`_ )
-    t0 : int
-      frame  where analysis begins
-    tf : int
-      frame where analysis ends
-    dtmax : int
-      Maximum dt size, `dtmax` < `tf` or it will crash.
+      define the region/zone where to analyze, e.g.: "resname SOL and around 5 (resid 10)". See `SP-examples`_.
+    verbose : Boolean, optional
+      When True, prints progress and comments to the console.
 
 
     .. versionadded:: 0.11.0
 
     """
 
-    def __init__(self, universe, selection, t0, tf, dtmax):
+    def __init__(self, universe, selection, t0=None, tf=None, dtmax=None, verbose=False):
         self.universe = universe
         self.selection = selection
-        self.t0 = t0
-        self.tf = tf
-        self.dtmax = dtmax
-        self.timeseries = []
+        self.verbose = verbose
 
+        # backward compatibility
+        self.start = self.stop = self.tau_max = None
+        if t0 is not None:
+            self.start = t0
+            warnings.warn("t0 is deprecated, use run(start=t0) instead", category=DeprecationWarning)
 
-    def run(self):
-        """Analyze trajectory and produce timeseries"""
+        if tf is not None:
+            self.stop = tf
+            warnings.warn("tf is deprecated, use run(stop=tf) instead", category=DeprecationWarning)
 
-        # select all frames to an array
-        selected = self._selection_serial(self.universe, self.selection)
+        if dtmax is not None:
+            self.tau_max = dtmax
+            warnings.warn("dtmax is deprecated, use run(tau_max=dtmax) instead", category=DeprecationWarning)
 
-        if len(selected) < self.dtmax:
-            print ("ERROR: Cannot select fewer frames than dtmax")
+    def print(self, verbose, *args):
+        if self.verbose:
+            print(args)
+        elif verbose:
+            print(args)
+
+    def _correct_intermittency(self, intermittency, selected_ids):
+        """
+        Pre-process Consecutive Intermittency with a single pass over the data.
+        If an atom is absent for a number of frames equal or smaller
+        than the `intermittency`, then correct the data and remove the absence.
+        ie 7,A,A,7 with intermittency=2 will be replaced by 7,7,7,7, where A=absence
+
+        Parameters
+        ----------
+        intermittency : int
+            the max gap allowed and to be corrected
+        selected_ids: list of ids
+            modifies the selecteded IDs in place by adding atoms which left for <= `intermittency`
+        """
+        self.print('Correcting the selected IDs for intermittancy (gaps). ')
+        if intermittency == 0:
             return
 
-        for window_size in list(range(1, self.dtmax + 1)):
-            output = self._getMeanOnePoint(selected, window_size)
-            self.timeseries.append(output)
+        for i, ids in enumerate(selected_ids):
+            # initially update each frame as seen 0 ago (now)
+            seen_frames_ago = {i: 0 for i in ids}
+            for j in range(1, intermittency + 2):
+                for atomid in seen_frames_ago.keys():
+                    # no more frames
+                    if i + j >= len(selected_ids):
+                        continue
+
+                    # if the atom is absent now
+                    if not atomid in selected_ids[i + j]:
+                        # increase its absence counter
+                        seen_frames_ago[atomid] += 1
+                        continue
+
+                    # the atom is found
+                    if seen_frames_ago[atomid] == 0:
+                        # the atom was present in the last frame
+                        continue
+
+                    # it was absent more times than allowed
+                    if seen_frames_ago[atomid] > intermittency:
+                        continue
+
+                    # the atom was absent but returned (within <= intermittency)
+                    # add it to the frames where it was absent.
+                    # Introduce the corrections.
+                    for k in range(seen_frames_ago[atomid], 0, -1):
+                        selected_ids[i + j - k].add(atomid)
+
+                    seen_frames_ago[atomid] = 0
 
 
-    def _selection_serial(self, universe, selection_str):
-        selected = []
-        pm = ProgressMeter(self.tf-self.t0, interval=10,
-                           verbose=True, offset=-self.t0)
-        for ts in universe.trajectory[self.t0:self.tf]:
-            selected.append(universe.select_atoms(selection_str))
-            pm.echo(ts.frame)
-        return selected
-
-
-    def _getMeanOnePoint(self, selected, window_size):
+    def run(self, tau_max=20, start=0, stop=None, step=1, residues=False, intermittency=0, verbose=False):
         """
-        This function gets one point of the plot P(t) vs t. It uses the
-        _getOneDeltaPoint() function to calculate the average.
+        Computes and returns the Survival Probability (SP) timeseries
+
+        Parameters
+        ----------
+        start : int, optional
+            Zero-based index of the first frame to be analysed
+        stop : int, optional
+            Zero-based index of the last frame to be analysed (inclusive)
+        step : int, optional
+            Jump every `step`-th frame. This is compatible but independant of the taus used, and it is good to consider
+            using the  `step` equal to `tau_max` to remove the overlap.
+            Note that `step` and `tau_max` work consistently with intermittency.
+        tau_max : int, optional
+            Survival probability is calculated for the range 1 <= `tau` <= `tau_max`
+        residues : Boolean, optional
+            If true, the analysis will be carried out on the residues (.resids) rather than on atom (.ids).
+            A single atom is sufficient to classify the residue as within the distance.
+        intermittency : int, optional
+            The maximum number of consecutive frames for which an atom can leave but be counted as present if it returns
+            at the next frame. An intermittency of `0` is equivalent to a continuous survival probability, which does
+            not allow for the leaving and returning of atoms. For example, for `intermittency=2`, any given atom may
+            leave a region of interest for up to two consecutive frames yet be treated as being present at all frames.
+            The default is continuous (0).
+        verbose : Boolean, optional
+            Print the progress to the console
+
+        Returns
+        -------
+        tau_timeseries : list
+            tau from 1 to `tau_max`. Saved in the field tau_timeseries.
+        sp_timeseries : list
+            survival probability for each value of `tau`. Saved in the field sp_timeseries.
         """
-        n = 0
-        sumDeltaP = 0.0
-        for frame_no in range(len(selected) - window_size):
-            delta = self._getOneDeltaPoint(selected, frame_no, window_size)
-            sumDeltaP += delta
-            n += 1
 
-        return sumDeltaP/n
+        # backward compatibility (and priority)
+        start = self.start if self.start is not None else start
+        stop = self.stop if self.stop is not None else stop
+        tau_max = self.tau_max if self.tau_max is not None else tau_max
 
+        # sanity checks
+        if stop is not None and stop >= len(self.universe.trajectory):
+            raise ValueError("\"stop\" must be smaller than the number of frames in the trajectory.")
 
-    def _getOneDeltaPoint(self, selected, t, tau):
-        """
-        Gives one point to calculate the mean and
-        gets one point of the plot C_vect vs t.
-        - Ex: t=1 and tau=1 calculates
-        how many selected water molecules survive from the frame 1 to 2
-        - Ex: t=5 and tau=3 calculates
-        how many selected water molecules survive from the frame 5 to 8
-        """
+        if stop is None:
+            stop = len(self.universe.trajectory)
+        else:
+            stop = stop + 1
 
-        Nt = len(selected[t])
-        if Nt == 0:
-            return 0
+        if tau_max > (stop - start):
+            raise ValueError("Too few frames selected for given tau_max.")
 
-        # fraction of water molecules that survived
-        Ntau = self._NumPart_tau(selected, t, tau)
-        return Ntau/Nt
+        # preload the frames (atom IDs) to a list of sets
+        self.selected_ids = []
 
+        # skip frames that will not be used
+        # Example: step 5 and tau 2: LLLSS LLLSS, ... where L = Load, and S = Skip
+        # Intermittency means that we have to load the extra frames to know if the atom is actually missing.
+        # Say step=5 and tau=1, intermittency=0: LLSSS LLSSS
+        # Say step=5 and tau=1, intermittency=1: LLLSL LLLSL
+        frame_loaded_counter = 0
+        # only for the first window (frames before t are not used)
+        frames_per_window = tau_max + 1 + intermittency
+        # This number will apply after the first windows was loaded
+        frames_per_window_subsequent = (tau_max + 1) + (2 * intermittency)
+        num_frames_to_skip = max(step - frames_per_window_subsequent, 0)
 
-    def _NumPart_tau(self, selected, t, tau):
-        """
-        Compares the molecules in t selection and t+tau selection and
-        select only the particles that remain from t to t+tau and
-        at each point in between.
-        It returns the number of remaining particles.
-        """
-        survivors = set(selected[t])
-        i = 0
-        while (t + i) < t + tau and (t + i) < len(selected):
-            next = set(selected[t + i])
-            survivors = survivors.intersection(next)
-            i += 1
-        return len(survivors)
+        frame_no = start
+        while frame_no < stop:      # we have already added 1 to stop, therefore <
+            if num_frames_to_skip != 0 and frame_loaded_counter == frames_per_window:
+                self.print(verbose, "Skipping the next %d frames:" % num_frames_to_skip)
+                frame_no += num_frames_to_skip
+                frame_loaded_counter = 0
+                # Correct the number of frames to be loaded after the first window (which starts at t=0, and
+                # intermittency does not apply to the frames before)
+                frames_per_window = frames_per_window_subsequent
+                continue
+
+            # update the frame number
+            self.universe.trajectory[frame_no]
+
+            self.print(verbose, "Loading frame:", self.universe.trajectory.ts)
+            atoms = self.universe.select_atoms(self.selection)
+
+            # SP of residues or of atoms
+            ids = atoms.residues.resids if residues else atoms.ids
+            self.selected_ids.append(set(ids))
+
+            frame_no += 1
+            frame_loaded_counter += 1
+
+        # correct the dataset for gaps (intermittency)
+        self._correct_intermittency(intermittency, self.selected_ids)
+
+        # calculate Survival Probability
+        tau_timeseries = np.arange(1, tau_max + 1)
+        sp_timeseries_data = [[] for _ in range(tau_max)]
+
+        # adjust for the frames that were not loaded (step>tau_max + 1),
+        # and for extra frames that were loaded (intermittency)
+        window_jump = step - num_frames_to_skip
+
+        for t in range(0, len(self.selected_ids), window_jump):
+            Nt = len(self.selected_ids[t])
+
+            if Nt == 0:
+                self.print(verbose,
+                           "At frame {} the selection did not find any molecule. Moving on to the next frame".format(t))
+                continue
+
+            for tau in tau_timeseries:
+                if t + tau >= len(self.selected_ids):
+                    break
+
+                # continuous: IDs that survive from t to t + tau and at every frame in between
+                Ntau = len(set.intersection(*self.selected_ids[t:t + tau + 1]))
+                sp_timeseries_data[tau - 1].append(Ntau / float(Nt))
+
+        # user can investigate the distribution and sample size
+        self.sp_timeseries_data = sp_timeseries_data
+
+        self.tau_timeseries = tau_timeseries
+        self.sp_timeseries = [np.mean(sp) for sp in sp_timeseries_data]
+        return self
